@@ -1,65 +1,38 @@
-
-name: Build HD Video Downloader APK
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [main]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-
-      - name: Extract ZIP and Build APK
-        id: build
-        run: |
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: Project ZIP not found"
+- name: Extract ZIP and Build APK
+  id: build
+  run: |
+    # 1. ZIP फाइल ढूँढें
+    ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+    
+    if [ -z "$ZIP_FILE" ]; then
+      echo "ERROR: Project ZIP not found in root directory!"
+      exit 1
+    fi
+    
+    echo "Found ZIP file: $ZIP_FILE"
+    
+    # 2. ZIP को अनज़िप (Extract) करें
+    # -o का मतलब है ओवरराइट करना अगर फाइल पहले से हो
+    unzip -o -q "$ZIP_FILE"
+    echo "ZIP extracted successfully."
+    
+    # 3. प्रोजेक्ट का मुख्य फोल्डर खोजें (जहाँ gradlew फाइल मौजूद है)
+    if [ ! -f "gradlew" ]; then
+        # अगर सीधे रूट में gradlew नहीं है, तो सब-फोल्डर में खोजें
+        GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
+        if [ -n "$GRADLEW_PATH" ]; then
+            PROJECT_DIR=$(dirname "$GRADLEW_PATH")
+            cd "$PROJECT_DIR"
+            echo "Moved to project directory: $(pwd)"
+        else
+            echo "ERROR: gradlew file not found anywhere after unzipping!"
             exit 1
-          fi
-
-          mkdir project
-          unzip -q "$ZIP_FILE" -d project
-
-          SETTINGS=$(find project -name settings.gradle.kts -print -quit)
-
-          if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Android project not found in ZIP"
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$SETTINGS")
-
-          gradle -p "$PROJECT_DIR" --no-daemon assembleDebug
-
-          APK=$(find "$PROJECT_DIR" -path "*/build/outputs/apk/debug/*.apk" -type f | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK not generated"
-            exit 1
-          fi
-
-          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: HD-Video-Downloader
-          path: ${{ steps.build.outputs.apk_path }}
+        fi
+    fi
+    
+    # 4. gradlew को एक्जीक्यूट (Execute) करने की परमिशन दें
+    chmod +x gradlew
+    
+    # 5. बिल्ड कमांड चलाएं (KSP Error फिक्स के साथ)
+    echo "Starting Gradle Build..."
+    ./gradlew assembleDebug --no-daemon -Djava.awt.headless=true -Pksp.useKSP2=true --stacktrace
